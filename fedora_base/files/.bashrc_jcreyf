@@ -1,0 +1,120 @@
+#
+# .bashrc is getting sourced in for all types of shells.
+# .bash_profile is only getting sourced in as part of a user logging on to the system.
+#
+# Since there's no prompt in non-interactive shells, we probably shouldn't set anything to configure the
+# screen in non-interactive shells (like setting the prompt; setting coloring; ...).  We should move that
+# stuff into .bashrc
+#
+# .bashrc sources in this file .bashrc_jcreyf only if the shell that's being opened is an interactive shell.
+#   case $- in
+#     *i*)
+#       source ~/.bashrc_jcreyf
+#       ;;
+#   esac
+#
+
+# Source in git stuff
+# Setting the prompt should probably go there too!
+source ~/.bashrc_git
+
+#
+# Function for a dynamic Git prompt:
+#
+git_prompt() {
+  local _url=$(git config --get remote.origin.url 2>/dev/null)
+  # Only continue if the current directory is under git control
+  if [[ ${_url} != "" ]] ; then
+    # Lets convert the url to http so that we can open it in a web browser
+    _url=$(echo $_url | sed 's/git@github.nike.com:/https:\/\/github.nike.com\//' | sed 's/\.git//')
+    local _branch=$(git branch 2>/dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/\1/')
+    if [ "${_branch}" == "master" ] ; then
+      _branch="\e[41;93m ${_branch} \e[0m"
+    else
+      _branch="\e[1;35m ${_branch} \e[0m"
+    fi
+    local _tag=$(git describe 2>/dev/null)
+    echo "[\e[1;37mGit -> \e[90;3m${_url}\e[0m [branch:${_branch} - tag: ${_tag}]\n"
+  fi
+}
+
+#
+# Function for a dynamic Terraform prompt:
+#
+terraform_prompt() {
+  # Only build a terraform prompt if there's a .terraform sub-dir in the current directory
+  if [ -d ${PWD}/.terraform ] ; then
+    local _tf_workspace
+    local _tf_log
+    local _debugFlag=""
+    # We're going to get a lot of extra garbage if we have the $TF_LOG env variable set.
+    # Remove it if set but keep track of it, so we can set it back as soon as we have the info we need!
+    test -z ${TF_LOG} ; local _logFlag=$?
+    # Remove the log level if set
+    if [[ $_logFlag -eq 1 ]] ; then 
+      _tf_log=${TF_LOG};
+      _debugFlag=" (TF_LOG=$_tf_log)"   # Show the set debug-level on the prompt
+      export TF_LOG=""; 
+    fi
+    # Get the name of the current workspace in Terraform
+    local _tf_workspace=$(terraform workspace show) 2>/dev/null
+    # Restore the log level if it was set
+    if [[ $_logFlag -eq 1 ]] ; then export TF_LOG=$_tf_log; fi
+    echo "[\e[1;37mTerraform -> workspace: \e[41;93;3m${_tf_workspace}\e[0m${_debugFlag} - AWS CLI pointing to: \e[41;93;3m${AWS_PROFILE}\e[0m]\n"
+  fi
+}
+
+
+#-----
+# Set the prompt:
+MACHINE=$(hostname -f)
+ORIGINAL_USER=$(who am i | awk '{print $1}')
+CURRENT_USER=$(whoami)
+_prompt="\e[1;33m${MACHINE}:\w/\e[0m"
+# The prompt needs to be regenerated each time we change directories.
+# Turns out this is best done through the PROMPT_COMMAND env variable since we apparently lose dynamic formatting capabilities if only using PS1
+export PS2='++> '
+export PROMPT_COMMAND='PS1="\n\["${_prompt}"\]\n$(git_prompt)$(terraform_prompt)${ORIGINAL_USER} as ${CURRENT_USER}> "'
+
+# Also set the prompt to save all my executed commands per month in ~/.bash-history-YYYYMM.log
+# This command:
+#   /> history 1
+# returns something like:
+#     1029  My command
+# We need to remove that 1st column, which is a counter.
+# Remove the prepending spaces; then cut out the 1st field up to the 1st space; then remove potential more spaces in front of the command.
+#   /> history 1 | sed 's/ //' | cut -d' ' -f2- | sed 's/ //'
+# returns:
+#   My command
+export PROMPT_COMMAND=${PROMPT_COMMAND}' ; if [ "$(id -u)" -ne 0 ]; then echo "$(date "+%Y-%m-%d.%H:%M:%S"),$(history 1 | sed "s/ //" | cut -d" " -f2- | sed "s/ //")" >> ~/.bash-history-$(date "+%Y-%m").log; fi'
+#
+# End of prompt
+#------
+
+
+# Set the command-line editor.  Using <CTRL>x <CTRL>e will open the current command in this editor.
+export EDITOR=vi
+
+# Set the colors for the output of the ls-command
+export LS_COLORS='rs=0:di=33;1;27:ln=38;5;51:mh=44;38;5;15:pi=40;38;5;11:so=38;5;13:do=38;5;5:bd=48;5;232;38;5;11:cd=48;5;232;38;5;3:or=48;5;232;38;5;9:mi=05;48;5;232;38;5;15:su=48;5;196;38;5;15:sg=48;5;11;38;5;16:ca=48;5;196;38;5;226:tw=48;5;10;38;5;16:ow=48;5;10;38;5;21:st=48;5;21;38;5;15:ex=34;0;31:*.tar=38;5;9'
+
+#
+# Set specific environment variables
+#
+PATH=${PATH}:~/bin
+PATH=/data/scripts:${PATH}
+export PATH
+
+#
+# User specific aliases and functions
+#
+alias ls='ls --color '
+alias la='ls -la --time-style="+%Y/%m/%d %H:%M:%S"'
+alias psg='ps -ef | grep -v grep | grep --color -i '
+alias dnfg='dnf list | grep --color -i '
+alias envg='env | grep --color -i '
+alias aliasg='alias | grep --color -i '
+alias findg='find . -print0 | xargs -0 grep --color -i '
+alias nohistory='unset HISTFILE'
+alias listmem='ps -e -o pid,vsz,comm= | sort -n -k 2'
+alias top='/usr/bin/htop'
